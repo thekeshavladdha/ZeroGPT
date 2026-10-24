@@ -92,9 +92,9 @@ All numbers below come from the saved JSON result files, not from an estimate in
 | Run | Validation loss (nats) | Training throughput | Peak memory |
 | --- | ---: | ---: | ---: |
 | Character bigram | 2.3787632082 | 11,718,388 tokens/s | 36.71 MB |
-| Tiny GPT | 1.5693275357 | 5,806 tokens/s | 510.32 MB |
+| Tiny GPT | 1.4862852312 | 5,202 tokens/s | 520.58 MB |
 
-The GPT improves the saved validation loss over the bigram baseline by **0.8094356732 nats**. The checkpoint reload check recorded a maximum absolute logit difference of **0.0**.
+The GPT improves the saved validation loss over the bigram baseline by **0.8924779770 nats**. The checkpoint reload check recorded a maximum absolute logit difference of **0.0**.
 
 The throughput and memory numbers above are measured on the Kaggle CPU runner via `notebooks/zerogpt_kaggle.ipynb`. The T4 does not accelerate this NumPy-only implementation.
 
@@ -103,7 +103,13 @@ The throughput and memory numbers above are measured on the Kaggle CPU runner vi
 The fixed showcase prompt is `Sherlock Holmes`, with seed `1337` and temperature `0.8`. The full generated output is saved in [`runs/gpt/sample.txt`](runs/gpt/sample.txt):
 
 ```text
-Sherlock Holmes. You came from if I have anyI aske from my could girly as the in her ofind my pass, have ned ed. I was feel see, whin any the prew a his ghas intruding three limpt with had pang the cit were, and we slo w norceed othe way into his days a last conecut. Satuceine the son of shame of mean, when Holmes, threw him wa tched his oversentiging in acdoor, and waittle hushed coroward the daught he enorge
+Sherlock Holmes. "You have seen at that they father all."
+
+“Amerious a sharmida in in conving the room.
+
+“In go you will go one it was nevilled over a good into myself, I it still ways the double upon our instant. There?”
+
+“But it is may the trace, and in of year end coatual hair keen and of my peave that send to remarked uncle, the was nowing dropped of the storibling hydred gestable the case that first t
 ```
 
 This sample is evidence for review, not a quality guarantee. It contains learned character and phrase patterns but remains visibly imperfect at this model size and training budget.

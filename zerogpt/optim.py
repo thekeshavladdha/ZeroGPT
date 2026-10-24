@@ -51,8 +51,15 @@ class AdamW:
         for parameter in self.parameters:
             parameter.zero_grad()
 
-    def step(self) -> dict[str, float]:
-        """Apply one clipped AdamW update and return gradient statistics."""
+    def step(self, learning_rate: float | None = None) -> dict[str, float]:
+        """Apply one clipped AdamW update and return gradient statistics.
+
+        ``learning_rate`` overrides the constructor value, which lets a
+        scheduler (e.g. cosine decay) drive the rate without rebuilding
+        the optimizer state.
+        """
+        if learning_rate is None:
+            learning_rate = self.learning_rate
         gradients = [
             parameter.grad if parameter.grad is not None else np.zeros_like(parameter.data)
             for parameter in self.parameters
@@ -75,5 +82,5 @@ class AdamW:
             update = first_hat / (np.sqrt(second_hat) + self.epsilon)
             if self.weight_decay:
                 update = update + self.weight_decay * parameter.data
-            parameter.data -= self.learning_rate * update
+            parameter.data -= learning_rate * update
         return {"gradient_norm": gradient_norm, "clip_scale": float(clip_scale)}

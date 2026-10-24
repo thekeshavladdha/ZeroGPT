@@ -143,12 +143,15 @@ def run(
     weight_decay: float,
     gradient_clip_norm: float,
     eval_interval: int,
+    warmup_steps: int,
     prompt: str,
     sample_tokens: int,
     temperature: float,
 ) -> dict[str, object]:
     if steps <= 0 or batch_size <= 0 or eval_batch_size <= 0 or eval_interval <= 0:
         raise ValueError("steps, batch sizes, and eval_interval must be positive")
+    if warmup_steps < 0 or warmup_steps >= steps:
+        raise ValueError("warmup_steps must be in [0, steps)")
     train_text = train_path.read_text(encoding="utf-8")
     validation_text = validation_path.read_text(encoding="utf-8")
     tokenizer = CharacterTokenizer.from_texts((train_text, validation_text))
@@ -185,6 +188,15 @@ def run(
         shuffle=True,
         drop_last=False,
     )
+
+    def learning_rate_for(current_step: int) -> float:
+        """Linear warm-up followed by cosine decay to 10% of the base rate."""
+        if current_step < warmup_steps:
+            return learning_rate * (current_step + 1) / warmup_steps
+        progress = (current_step - warmup_steps) / max(1, steps - warmup_steps)
+        cosine = 0.5 * (1.0 + np.cos(np.pi * min(1.0, progress)))
+        return learning_rate * (0.1 + 0.9 * cosine)
+
     with log_path.open("w", encoding="utf-8") as log_file:
         while step < steps:
             try:
@@ -205,7 +217,8 @@ def run(
             loss = model.loss(inputs, targets)
             loss_value = float(loss.data)
             loss.backward()
-            optimizer_stats = optimizer.step()
+            rate = learning_rate_for(step)
+            optimizer_stats = optimizer.step(learning_rate=rate)
             tokens_seen += int(targets.size)
             elapsed = time.perf_counter() - started
             record = {
@@ -213,11 +226,19 @@ def run(
                 "step": step,
                 "epoch": epoch,
                 "loss_nats": loss_value,
+                "learning_rate": rate,
                 "tokens_seen": tokens_seen,
                 "tokens_per_second": tokens_seen / elapsed,
                 **optimizer_stats,
             }
             if step % eval_interval == 0 or step == steps:
+                train_eval = evaluate(
+                    model,
+                    train_tokens,
+                    batch_size=eval_batch_size,
+                    seed=seed,
+                    max_batches=16,
+                )
                 validation = evaluate(
                     model,
                     validation_tokens,
@@ -225,7 +246,11 @@ def run(
                     seed=seed,
                     max_batches=16,
                 )
+                record["train_loss_sample_nats"] = train_eval["loss_nats"]
                 record["validation_loss_sample_nats"] = validation["loss_nats"]
+                record["overfit_gap_nats"] = (
+                    train_eval["loss_nats"] - validation["loss_nats"]
+                )
             log_file.write(json.dumps(record) + "\n")
 
     training_elapsed_seconds = time.perf_counter() - started
@@ -333,7 +358,8 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=3e-3)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--gradient-clip-norm", type=float, default=1.0)
-    parser.add_argument("--eval-interval", type=int, default=300)
+    parser.add_argument("--eval-interval", type=int, default=100)
+    parser.add_argument("--warmup-steps", type=int, default=200)
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--sample-tokens", type=int, default=400)
     parser.add_argument("--temperature", type=float, default=0.8)
@@ -350,6 +376,7 @@ def main() -> None:
         weight_decay=args.weight_decay,
         gradient_clip_norm=args.gradient_clip_norm,
         eval_interval=args.eval_interval,
+        warmup_steps=args.warmup_steps,
         prompt=args.prompt,
         sample_tokens=args.sample_tokens,
         temperature=args.temperature,
