@@ -80,7 +80,7 @@ The saved showcase model uses this configuration from [`runs/gpt/config.json`](r
 | MLP width | 256 |
 | Context length | 64 |
 | Vocabulary size | 88 |
-| Parameters | 87,848 |
+| Parameters | 115,544 |
 | Seed | 1337 |
 
 Each decoder block applies LayerNorm, causal multi-head self-attention, a residual connection, a GELU MLP, and another residual connection. Learned token and position embeddings feed the stack, and a final LayerNorm plus linear head produces character logits.
@@ -92,9 +92,9 @@ All numbers below come from the saved JSON result files, not from an estimate in
 | Run | Validation loss (nats) | Training throughput | Peak memory |
 | --- | ---: | ---: | ---: |
 | Character bigram | 2.3787632082 | 11,718,388 tokens/s | 36.71 MB |
-| Tiny GPT | 1.7760954257 | 16,453 tokens/s | 142.79 MB |
+| Tiny GPT | 1.5602985950 | 5,806 tokens/s | 510.32 MB |
 
-The GPT improves the saved validation loss over the bigram baseline by **0.6026677824 nats**. The checkpoint reload check recorded a maximum absolute logit difference of **0.0**.
+The GPT improves the saved validation loss over the bigram baseline by **0.8184646132 nats**. The checkpoint reload check recorded a maximum absolute logit difference of **0.0**.
 
 The throughput and memory numbers above are from the local Linux development runner. They are not a Kaggle hardware measurement. The Kaggle notebook is provided for a reproducible CPU run in that environment.
 
@@ -103,7 +103,7 @@ The throughput and memory numbers above are from the local Linux development run
 The fixed showcase prompt is `Sherlock Holmes`, with seed `1337` and temperature `0.8`. The full generated output is saved in [`runs/gpt/sample.txt`](runs/gpt/sample.txt):
 
 ```text
-Sherlock Holmes. You be vading if I latte supe with a reside her to had cater the dees-ney much of of the he clayen which had make there such gato what spain weireses that yent the but the disces to the I know and the prome clearsh same from the night, but any cleame do such had a gook may earn of meark up that of of the rether wangenerieng of strrarger quarnder, arrive drong zenor a succk on the secod the profi
+Sherlock Holmes. “You have the gavellentiess, Mr.” easked craid, to he that the kind seems, reson the past rain with some of his proloyed which mury can the crime, but have any to way, sat he concentratler surb it was not oncent some of his loveer fierect mans enough folow for and his color and of his happed as of man. Stome homn and it from to to comportable out his that to husborne room for and the influffi
 ```
 
 This sample is evidence for review, not a quality guarantee. It contains learned character and phrase patterns but remains visibly imperfect at this model size and training budget.
