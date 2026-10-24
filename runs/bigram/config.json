@@ -1,0 +1,14 @@
+{
+  "train_path": "data/processed/train.txt",
+  "validation_path": "data/processed/validation.txt",
+  "batch_size": 8192,
+  "seed": 1337,
+  "smoothing": 1.0,
+  "shuffle": false,
+  "model": {
+    "vocab_size": 88,
+    "smoothing": 1.0,
+    "observed_start_tokens": 1,
+    "observed_transitions": 506454
+  }
+}

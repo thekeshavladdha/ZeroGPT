@@ -1,0 +1,9 @@
+{
+  "source_file": "dataset.txt",
+  "cleaned_characters": 562585,
+  "vocabulary_size": 88,
+  "train_characters": 506455,
+  "validation_characters": 56130,
+  "train_fraction": 0.900228,
+  "split_method": "document order, nearest paragraph boundary to requested fraction"
+}

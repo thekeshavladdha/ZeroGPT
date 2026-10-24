@@ -1,0 +1,16 @@
+{
+  "model": "character_bigram",
+  "seed": 1337,
+  "vocabulary_size": 88,
+  "train_characters": 506455,
+  "validation_characters": 56130,
+  "processed_tokens": 506455,
+  "train_loss_nats": 2.3700886001407677,
+  "validation_loss_nats": 2.378763208175573,
+  "elapsed_seconds": 0.043218830000114394,
+  "train_tokens_per_second": 11718387.563908128,
+  "peak_memory_mb": 36.70703125,
+  "checkpoint": "runs/bigram/checkpoint.npz",
+  "config": "runs/bigram/config.json",
+  "log": "runs/bigram/train.jsonl"
+}
