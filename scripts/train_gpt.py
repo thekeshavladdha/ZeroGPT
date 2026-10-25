@@ -19,7 +19,7 @@ from zerogpt.bigram import write_json
 from zerogpt.gpt import GPTConfig, GPTModel
 from zerogpt.optim import AdamW
 from zerogpt.system import peak_memory_mb
-from zerogpt.tokenizer import CharacterTokenizer
+from zerogpt.tokenizer import BytePairTokenizer, CharacterTokenizer
 
 
 DEFAULT_TRAIN = ROOT / "data" / "processed" / "train.txt"
@@ -104,7 +104,7 @@ def evaluate(
 
 def sample(
     model: GPTModel,
-    tokenizer: CharacterTokenizer,
+    tokenizer: CharacterTokenizer | BytePairTokenizer,
     prompt: str,
     *,
     max_new_tokens: int,
@@ -130,6 +130,21 @@ def sample(
     return tokenizer.decode(generated)
 
 
+def build_tokenizer(
+    train_text: str,
+    validation_text: str,
+    *,
+    tokenizer_type: str,
+    vocab_limit: int,
+) -> CharacterTokenizer | BytePairTokenizer:
+    """Construct a tokenizer from the training and validation texts."""
+    if tokenizer_type == "character":
+        return CharacterTokenizer.from_texts((train_text, validation_text))
+    if tokenizer_type == "byte_pair":
+        return BytePairTokenizer.from_texts((train_text, validation_text), vocab_limit=vocab_limit)
+    raise ValueError(f"Unknown tokenizer type: {tokenizer_type!r}")
+
+
 def run(
     train_path: Path,
     validation_path: Path,
@@ -147,6 +162,8 @@ def run(
     prompt: str,
     sample_tokens: int,
     temperature: float,
+    tokenizer_type: str,
+    vocab_limit: int,
 ) -> dict[str, object]:
     if steps <= 0 or batch_size <= 0 or eval_batch_size <= 0 or eval_interval <= 0:
         raise ValueError("steps, batch sizes, and eval_interval must be positive")
@@ -154,7 +171,7 @@ def run(
         raise ValueError("warmup_steps must be in [0, steps)")
     train_text = train_path.read_text(encoding="utf-8")
     validation_text = validation_path.read_text(encoding="utf-8")
-    tokenizer = CharacterTokenizer.from_texts((train_text, validation_text))
+    tokenizer = build_tokenizer(train_text, validation_text, tokenizer_type=tokenizer_type, vocab_limit=vocab_limit)
     train_tokens = tokenizer.encode(train_text)
     validation_tokens = tokenizer.encode(validation_text)
     prompt_tokens = tokenizer.encode(prompt)
@@ -318,6 +335,8 @@ def run(
     elapsed_seconds = time.perf_counter() - started
     results = {
         "model": "tiny_decoder_gpt",
+        "tokenizer_type": tokenizer_type,
+        "vocab_limit": vocab_limit,
         "seed": seed,
         "vocabulary_size": tokenizer.vocab_size,
         "train_characters": len(train_text),
@@ -363,6 +382,13 @@ def main() -> None:
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--sample-tokens", type=int, default=400)
     parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument(
+        "--tokenizer-type",
+        choices=("character", "byte_pair"),
+        default="byte_pair",
+        help="Subword BPE is the default for new runs; character is available for comparison.",
+    )
+    parser.add_argument("--vocab-limit", type=int, default=512)
     args = parser.parse_args()
     results = run(
         args.train,
@@ -380,6 +406,8 @@ def main() -> None:
         prompt=args.prompt,
         sample_tokens=args.sample_tokens,
         temperature=args.temperature,
+        tokenizer_type=args.tokenizer_type,
+        vocab_limit=args.vocab_limit,
     )
     print(json.dumps(results, indent=2))
 

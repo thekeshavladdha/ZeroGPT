@@ -1,4 +1,4 @@
-"""Deterministic character-level tokenization for the ZeroGPT corpus."""
+"""Tokenizers for the ZeroGPT corpus: character-level and byte-pair subword."""
 
 from __future__ import annotations
 
@@ -67,3 +67,136 @@ class CharacterTokenizer:
         if not isinstance(characters, list):
             raise ValueError("Tokenizer state must contain a list of characters")
         return cls(characters)
+
+
+class BytePairTokenizer:
+    """Byte-level BPE tokenizer with a learned, deterministic merge table.
+
+    The vocabulary starts as the 256 byte values. Training repeatedly merges
+    the most frequent adjacent pair of token ids into a new id, up to
+    ``vocab_limit`` total tokens. Encoding applies the learned merges in rank
+    order (lowest rank first), which is equivalent to greedily merging the
+    highest-priority pair at every position. Because merges are learned from
+    bytes rather than Unicode code points, every input string round-trips with
+    no unknown-token handling.
+    """
+
+    def __init__(self, merges: list[tuple[int, int]], vocab_limit: int = 256) -> None:
+        if vocab_limit < 256:
+            raise ValueError("vocab_limit must be at least 256 (the byte vocabulary)")
+        self.merges: list[tuple[int, int]] = [(int(left), int(right)) for left, right in merges]
+        if len(self.merges) > vocab_limit - 256:
+            raise ValueError("vocab_limit is too small for the supplied merges")
+        self.vocab_limit = vocab_limit
+        self._token_to_bytes: list[bytes] | None = None
+
+    @property
+    def vocab_size(self) -> int:
+        return 256 + len(self.merges)
+
+    @classmethod
+    def from_texts(cls, texts: Iterable[str], vocab_limit: int = 512) -> "BytePairTokenizer":
+        """Learn one merge table from the union of all texts."""
+        data = b"".join(text.encode("utf-8") for text in texts)
+        return cls(cls._learn_merges(data, vocab_limit), vocab_limit=vocab_limit)
+
+    @staticmethod
+    def _merge_pair(tokens: list[int], left: int, right: int, new_id: int) -> list[int]:
+        """Replace every adjacent ``[left, right]`` in ``tokens`` with ``new_id``."""
+        merged: list[int] = []
+        index = 0
+        while index < len(tokens):
+            if index + 1 < len(tokens) and tokens[index] == left and tokens[index + 1] == right:
+                merged.append(new_id)
+                index += 2
+            else:
+                merged.append(tokens[index])
+                index += 1
+        return merged
+
+    @staticmethod
+    def _learn_merges(data: bytes, vocab_limit: int) -> list[tuple[int, int]]:
+        if vocab_limit <= 256 or len(data) < 2:
+            return []
+        tokens = list(data)
+        merges: list[tuple[int, int]] = []
+        for rank in range(vocab_limit - 256):
+            counts: dict[tuple[int, int], int] = {}
+            for left, right in zip(tokens, tokens[1:]):
+                pair = (left, right)
+                counts[pair] = counts.get(pair, 0) + 1
+            if not counts:
+                break
+            # Most frequent pair; ties broken by smallest pair for determinism.
+            best_pair = min(counts, key=lambda pair: (-counts[pair], pair))
+            if counts[best_pair] < 2:
+                break  # No pair is worth merging.
+            merges.append(best_pair)
+            tokens = BytePairTokenizer._merge_pair(tokens, *best_pair, 256 + rank)
+        return merges
+
+    def encode(self, text: str) -> np.ndarray:
+        """Return subword token ids for ``text`` as a one-dimensional array."""
+        tokens = list(text.encode("utf-8"))
+        for rank, pair in enumerate(self.merges):
+            if len(tokens) < 2:
+                break
+            tokens = self._merge_pair(tokens, *pair, 256 + rank)
+        return np.fromiter(tokens, dtype=np.int64, count=len(tokens))
+
+    def _build_token_bytes(self) -> list[bytes]:
+        table: list[bytes] = [bytes([value]) for value in range(256)]
+        for left, right in self.merges:
+            table.append(table[left] + table[right])
+        return table
+
+    @property
+    def token_to_bytes(self) -> list[bytes]:
+        if self._token_to_bytes is None:
+            self._token_to_bytes = self._build_token_bytes()
+        return self._token_to_bytes
+
+    def decode(self, tokens: Iterable[int] | np.ndarray) -> str:
+        """Decode token ids back to the original UTF-8 string."""
+        table = self.token_to_bytes
+        byte_values = bytearray()
+        for token in np.asarray(tokens).reshape(-1):
+            int_token = int(token)
+            if int_token < 0 or int_token >= len(table):
+                raise IndexError(f"Token id {int_token} is outside the tokenizer vocabulary")
+            byte_values.extend(table[int_token])
+        # Model sampling can emit token sequences that do not form valid UTF-8.
+        # Use the standard error handler so generation never crashes; the
+        # replacement character marks where the byte stream was malformed.
+        return bytes(byte_values).decode("utf-8", errors="replace")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "type": "byte_pair",
+            "vocab_limit": self.vocab_limit,
+            "merges": [list(pair) for pair in self.merges],
+        }
+
+    @classmethod
+    def from_dict(cls, state: dict[str, object]) -> "BytePairTokenizer":
+        merges_raw = state.get("merges")
+        if not isinstance(merges_raw, list):
+            raise ValueError("Tokenizer state must contain a list of merges")
+        merges = [(int(left), int(right)) for left, right in merges_raw]
+        vocab_limit = int(state.get("vocab_limit", 256 + len(merges)))
+        return cls(merges, vocab_limit=vocab_limit)
+
+
+def load_tokenizer(state: dict[str, object]) -> CharacterTokenizer | BytePairTokenizer:
+    """Reconstruct a tokenizer from its saved dictionary.
+
+    Dispatches on the ``type`` field so callers do not need to know which
+    tokenizer variant was used. Character checkpoints without a ``type``
+    field still load for backward compatibility.
+    """
+    type_name = state.get("type", "character")
+    if type_name == "byte_pair":
+        return BytePairTokenizer.from_dict(state)
+    if type_name == "character":
+        return CharacterTokenizer.from_dict(state)
+    raise ValueError(f"Unknown tokenizer type: {type_name!r}")

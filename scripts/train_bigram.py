@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 
 from zerogpt.bigram import BigramModel, write_json
 from zerogpt.system import peak_memory_mb
-from zerogpt.tokenizer import CharacterTokenizer
+from zerogpt.tokenizer import BytePairTokenizer, CharacterTokenizer
 
 
 DEFAULT_TRAIN = ROOT / "data" / "processed" / "train.txt"
@@ -32,6 +32,20 @@ def report_path(path: Path) -> str:
     return relative.as_posix()
 
 
+def build_tokenizer(
+    train_text: str,
+    validation_text: str,
+    *,
+    tokenizer_type: str,
+    vocab_limit: int,
+) -> CharacterTokenizer | BytePairTokenizer:
+    if tokenizer_type == "character":
+        return CharacterTokenizer.from_texts((train_text, validation_text))
+    if tokenizer_type == "byte_pair":
+        return BytePairTokenizer.from_texts((train_text, validation_text), vocab_limit=vocab_limit)
+    raise ValueError(f"Unknown tokenizer type: {tokenizer_type!r}")
+
+
 def run(
     train_path: Path,
     validation_path: Path,
@@ -41,10 +55,17 @@ def run(
     seed: int,
     smoothing: float,
     shuffle: bool,
+    tokenizer_type: str,
+    vocab_limit: int,
 ) -> dict[str, object]:
     train_text = train_path.read_text(encoding="utf-8")
     validation_text = validation_path.read_text(encoding="utf-8")
-    tokenizer = CharacterTokenizer.from_texts((train_text, validation_text))
+    tokenizer = build_tokenizer(
+        train_text,
+        validation_text,
+        tokenizer_type=tokenizer_type,
+        vocab_limit=vocab_limit,
+    )
     train_tokens = tokenizer.encode(train_text)
     validation_tokens = tokenizer.encode(validation_text)
 
@@ -101,6 +122,7 @@ def run(
     write_json(output_dir / "config.json", config)
     results = {
         "model": "character_bigram",
+        "tokenizer_type": tokenizer_type,
         "seed": seed,
         "vocabulary_size": tokenizer.vocab_size,
         "train_characters": len(train_text),
@@ -128,6 +150,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--smoothing", type=float, default=1.0)
     parser.add_argument("--shuffle", action="store_true")
+    parser.add_argument(
+        "--tokenizer-type",
+        choices=("character", "byte_pair"),
+        default="byte_pair",
+    )
+    parser.add_argument("--vocab-limit", type=int, default=512)
     args = parser.parse_args()
     results = run(
         args.train,
@@ -137,6 +165,8 @@ def main() -> None:
         seed=args.seed,
         smoothing=args.smoothing,
         shuffle=args.shuffle,
+        tokenizer_type=args.tokenizer_type,
+        vocab_limit=args.vocab_limit,
     )
     print(json.dumps(results, indent=2))
 

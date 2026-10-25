@@ -60,4 +60,4 @@
 {"event": "train_batch", "step": 60, "processed_tokens": 491521}
 {"event": "train_batch", "step": 61, "processed_tokens": 499713}
 {"event": "train_batch", "step": 62, "processed_tokens": 506455}
-{"event": "evaluation", "train_loss_nats": 2.3700886001407677, "validation_loss_nats": 2.378763208175573}
+{"event": "evaluation", "train_loss_nats": 2.3700886001407673, "validation_loss_nats": 2.3787632081755734}
