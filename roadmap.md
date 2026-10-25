@@ -89,3 +89,14 @@ List the project owner as the sole project owner/maintainer. The README does not
 ## Out of scope for V1
 
 Do not build BPE, RoPE, RMSNorm, SwiGLU, GQA, KV cache, a browser inference demo, a large ablation/scaling study, native acceleration, a blog, or a video. Consider an addition only after the tiny GPT passes all v1 gates and there is a concrete reason to add it.
+
+## V2 — tokenizer scaling study (completed 2026-10-25)
+
+With the V1 gates passed, V2 lifted exactly two out-of-scope items: BPE and a scaling study. The question: does byte-pair tokenization beat character-level tokenization once the model is big enough for subwords to pay off?
+
+- **Metric**: validation loss per character (nats/char) for every cross-tokenizer claim. V1's BPE comparison at 3.02 nats/token was a metric artifact — on nats/char that run already won (1.41 vs 1.49).
+- **Corpus**: seven public-domain Gutenberg books (Doyle 1661/834/2852/108/2343, Twain 74/76), 3,029,648 characters, same cleaning rules and 90/10 document-order split.
+- **Architecture (Tier A)**: 4 layers, width 192, MLP 768, 6 heads, context 128, batch 16 → 1,842,916 (character) / 2,001,536 (BPE-512) parameters.
+- **Protocol**: equal steps (3,000), LR 3e-3 with 200-step warmup and cosine decay, seed 1337; tokenizers fitted on the training split only (the V1-era train+validation fit was a leak, fixed); 500-step local pilots chose vocabulary 512 and LR 3e-3; full runs on the Kaggle CPU. An earlier Kaggle BPE run was discarded when its tokenizer proved unreproducible from the committed code — the notebook now carries a pre-flight cell asserting the corpus and the exact BPE tokenization (146,289 validation tokens) before training.
+- **Gates**: BPE at least 0.05 nats/char better than character; both beat the bigram baseline; owner reviews the BPE sample. A character context-256 control run was pre-agreed only if the margin came in under 0.1.
+- **Result**: BPE-512 = **1.3423** nats/char vs character 1.4685 — margin 0.1263, so the control run was not triggered. Both beat the 2.4184 bigram. The BPE sample shows longer coherent phrases and correct dialogue formatting than the character sample. Artifacts: `runs/gpt_v2_bpe/` (full), `runs/gpt_v2_char/` (results transcribed from the session output; see its `PROVENANCE.md`).

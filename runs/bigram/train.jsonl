@@ -331,4 +331,4 @@
 {"event": "train_batch", "step": 331, "processed_tokens": 2711553}
 {"event": "train_batch", "step": 332, "processed_tokens": 2719745}
 {"event": "train_batch", "step": 333, "processed_tokens": 2726749}
-{"event": "evaluation", "train_loss_nats": 2.383196041146711, "validation_loss_nats": 2.4183680141100194}
+{"event": "evaluation", "train_loss_nats": 2.3831960411467112, "validation_loss_nats": 2.4183680141100194}
