@@ -132,16 +132,15 @@ def sample(
 
 def build_tokenizer(
     train_text: str,
-    validation_text: str,
     *,
     tokenizer_type: str,
     vocab_limit: int,
 ) -> CharacterTokenizer | BytePairTokenizer:
-    """Construct a tokenizer from the training and validation texts."""
+    """Fit a tokenizer on the training split only, so validation stays unseen."""
     if tokenizer_type == "character":
-        return CharacterTokenizer.from_texts((train_text, validation_text))
+        return CharacterTokenizer.from_text(train_text)
     if tokenizer_type == "byte_pair":
-        return BytePairTokenizer.from_texts((train_text, validation_text), vocab_limit=vocab_limit)
+        return BytePairTokenizer.from_texts((train_text,), vocab_limit=vocab_limit)
     raise ValueError(f"Unknown tokenizer type: {tokenizer_type!r}")
 
 
@@ -164,6 +163,11 @@ def run(
     temperature: float,
     tokenizer_type: str,
     vocab_limit: int,
+    num_layers: int,
+    num_heads: int,
+    model_width: int,
+    mlp_width: int,
+    context_length: int,
 ) -> dict[str, object]:
     if steps <= 0 or batch_size <= 0 or eval_batch_size <= 0 or eval_interval <= 0:
         raise ValueError("steps, batch sizes, and eval_interval must be positive")
@@ -171,18 +175,19 @@ def run(
         raise ValueError("warmup_steps must be in [0, steps)")
     train_text = train_path.read_text(encoding="utf-8")
     validation_text = validation_path.read_text(encoding="utf-8")
-    tokenizer = build_tokenizer(train_text, validation_text, tokenizer_type=tokenizer_type, vocab_limit=vocab_limit)
+    tokenizer = build_tokenizer(train_text, tokenizer_type=tokenizer_type, vocab_limit=vocab_limit)
     train_tokens = tokenizer.encode(train_text)
     validation_tokens = tokenizer.encode(validation_text)
     prompt_tokens = tokenizer.encode(prompt)
+    validation_tokens_per_char = len(validation_tokens) / len(validation_text)
 
     config = GPTConfig(
         vocab_size=tokenizer.vocab_size,
-        context_length=64,
-        num_layers=2,
-        num_heads=8,
-        model_width=64,
-        mlp_width=256,
+        context_length=context_length,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        model_width=model_width,
+        mlp_width=mlp_width,
     )
     model = GPTModel(config, seed=seed)
     optimizer = AdamW(
@@ -265,6 +270,9 @@ def run(
                 )
                 record["train_loss_sample_nats"] = train_eval["loss_nats"]
                 record["validation_loss_sample_nats"] = validation["loss_nats"]
+                record["validation_loss_sample_per_char_nats"] = (
+                    validation["loss_nats"] * validation_tokens_per_char
+                )
                 record["overfit_gap_nats"] = (
                     train_eval["loss_nats"] - validation["loss_nats"]
                 )
@@ -346,6 +354,8 @@ def run(
         "tokens_seen": tokens_seen,
         "train_loss_nats_sample": full_training["loss_nats"],
         "validation_loss_nats": validation_loss,
+        "validation_tokens_per_char": validation_tokens_per_char,
+        "validation_loss_per_char_nats": validation_loss * validation_tokens_per_char,
         "validation_tokens": full_validation["tokens"],
         "bigram_validation_loss_nats": bigram_loss,
         "validation_improvement_nats": bigram_loss - validation_loss,
@@ -389,6 +399,11 @@ def main() -> None:
         help="Subword BPE is the default for new runs; character is available for comparison.",
     )
     parser.add_argument("--vocab-limit", type=int, default=512)
+    parser.add_argument("--num-layers", type=int, default=2)
+    parser.add_argument("--num-heads", type=int, default=8)
+    parser.add_argument("--model-width", type=int, default=64)
+    parser.add_argument("--mlp-width", type=int, default=256)
+    parser.add_argument("--context-length", type=int, default=64)
     args = parser.parse_args()
     results = run(
         args.train,
@@ -408,6 +423,11 @@ def main() -> None:
         temperature=args.temperature,
         tokenizer_type=args.tokenizer_type,
         vocab_limit=args.vocab_limit,
+        num_layers=args.num_layers,
+        num_heads=args.num_heads,
+        model_width=args.model_width,
+        mlp_width=args.mlp_width,
+        context_length=args.context_length,
     )
     print(json.dumps(results, indent=2))
 

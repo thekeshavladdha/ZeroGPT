@@ -46,6 +46,14 @@ class BytePairTokenizerTests(unittest.TestCase):
         self.assertEqual(one.merges, two.merges)
         self.assertEqual(one.encode("aaabbb").tolist(), two.encode("aaabbb").tolist())
 
+    def test_merge_learning_samples_large_inputs_deterministically(self) -> None:
+        large = ("You are Sherlock Holmes " * 45000)[:1_100_000]
+        self.assertGreater(len(large.encode("utf-8")), BytePairTokenizer.MERGE_SAMPLE_BYTES)
+        one = BytePairTokenizer.from_texts([large], vocab_limit=280)
+        two = BytePairTokenizer.from_texts([large], vocab_limit=280)
+        self.assertEqual(one.merges, two.merges)
+        self.assertEqual(one.encode("Sherlock").tolist(), two.encode("Sherlock").tolist())
+
     def test_handles_unicode_without_unknown_tokens(self) -> None:
         tokenizer = BytePairTokenizer.from_texts(
             ["Héllo Wörld", "emoji 🧪 test", "UPPER lower Mixed123\n"],

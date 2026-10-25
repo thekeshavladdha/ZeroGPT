@@ -96,9 +96,27 @@ class BytePairTokenizer:
 
     @classmethod
     def from_texts(cls, texts: Iterable[str], vocab_limit: int = 512) -> "BytePairTokenizer":
-        """Learn one merge table from the union of all texts."""
-        data = b"".join(text.encode("utf-8") for text in texts)
+        """Learn one merge table from the union of all texts.
+
+        shortcut: merges are learned from a capped, evenly-spaced sample of the
+        input bytes so fitting a multi-megabyte corpus stays fast; revisit if
+        merge quality at large vocabularies ever looks weak.
+        """
+        data = cls._sample_bytes(b"".join(text.encode("utf-8") for text in texts))
         return cls(cls._learn_merges(data, vocab_limit), vocab_limit=vocab_limit)
+
+    MERGE_SAMPLE_BYTES = 1_000_000
+    MERGE_SAMPLE_WINDOWS = 8
+
+    @classmethod
+    def _sample_bytes(cls, data: bytes) -> bytes:
+        """Return up to ``MERGE_SAMPLE_BYTES`` bytes in evenly-spaced windows."""
+        if len(data) <= cls.MERGE_SAMPLE_BYTES:
+            return data
+        windows = cls.MERGE_SAMPLE_WINDOWS
+        window_size = cls.MERGE_SAMPLE_BYTES // windows
+        starts = [round(index * (len(data) - window_size) / (windows - 1)) for index in range(windows)]
+        return b"".join(data[start : start + window_size] for start in starts)
 
     @staticmethod
     def _merge_pair(tokens: list[int], left: int, right: int, new_id: int) -> list[int]:

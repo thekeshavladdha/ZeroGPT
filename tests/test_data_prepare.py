@@ -1,53 +1,43 @@
 import unittest
 
-from data.prepare import clean_corpus, split_document
+from data.prepare import clean_book, split_document
 
 
-class CleanCorpusTests(unittest.TestCase):
-    def test_extracts_story_and_removes_wrapper_and_illustration(self) -> None:
-        source = """Gutenberg header and license
-ADVENTURES OF SHERLOCK HOLMES
+class CleanBookTests(unittest.TestCase):
+    def test_extracts_between_markers_and_reflows_paragraphs(self) -> None:
+        source = (
+            "The Project Gutenberg header\n"
+            "*** START OF THE PROJECT GUTENBERG EBOOK TOM SAWYER ***\n"
+            "\n"
+            "She said\n"
+            "hello.\n"
+            "\n"
+            "[Illustration: a caption]\n"
+            "\n"
+            "THE END.\n"
+            "*** END OF THE PROJECT GUTENBERG EBOOK TOM SAWYER ***\n"
+            "License text\n"
+        )
 
-Adventure I
+        cleaned = clean_book(source, "Tom Sawyer")
 
-A SCANDAL IN BOHEMIA
-
-The first wrapped
-line of the story.
-
-[Illustration:
-caption text
-]
-
-The final paragraph.
-THE END
-Publisher advertisements
-"""
-
-        cleaned = clean_corpus(source)
-
-        self.assertTrue(cleaned.startswith("ADVENTURES OF SHERLOCK HOLMES\n\nAdventure I"))
-        self.assertIn("The first wrapped line of the story.", cleaned)
-        self.assertIn("A SCANDAL IN BOHEMIA", cleaned)
+        self.assertEqual(cleaned, "She said hello.\n\nTHE END.")
         self.assertNotIn("Gutenberg", cleaned)
         self.assertNotIn("Illustration", cleaned)
-        self.assertNotIn("Publisher advertisements", cleaned)
+        self.assertNotIn("License", cleaned)
 
-    def test_requires_story_boundaries(self) -> None:
+    def test_requires_gutenberg_boundaries(self) -> None:
         with self.assertRaises(ValueError):
-            clean_corpus("not a Project Gutenberg story")
+            clean_book("not a Project Gutenberg book", "Untitled")
 
-    def test_rejects_unclosed_illustration_caption(self) -> None:
-        source = """ADVENTURES OF SHERLOCK HOLMES
-
-Adventure I
-
-[Illustration: missing closing bracket
-THE END
-"""
-
+    def test_rejects_end_marker_before_start_marker(self) -> None:
+        source = (
+            "*** END OF THE PROJECT GUTENBERG EBOOK A ***\n"
+            "body\n"
+            "*** START OF THE PROJECT GUTENBERG EBOOK A ***\n"
+        )
         with self.assertRaises(ValueError):
-            clean_corpus(source)
+            clean_book(source, "A")
 
 
 class SplitDocumentTests(unittest.TestCase):

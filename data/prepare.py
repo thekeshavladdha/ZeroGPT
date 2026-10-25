@@ -1,43 +1,48 @@
-"""Prepare the supplied Sherlock Holmes text for character-level training."""
+"""Prepare public-domain Project Gutenberg books for language-model training."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import urllib.request
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = ROOT / "dataset.txt"
 DEFAULT_OUTPUT = ROOT / "data" / "processed"
+RAW_DIR = ROOT / "data" / "raw"
 
-BOOK_START = re.compile(
-    r"(?m)^ADVENTURES OF SHERLOCK HOLMES[ \t]*\n(?:[ \t]*\n)+[ \t]*Adventure I[ \t]*$"
+# The V2 corpus: the Sherlock Holmes canon plus two Mark Twain novels.
+BOOKS: tuple[tuple[int, str], ...] = (
+    (1661, "The Adventures of Sherlock Holmes"),
+    (834, "The Memoirs of Sherlock Holmes"),
+    (2852, "The Hound of the Baskervilles"),
+    (108, "The Return of Sherlock Holmes"),
+    (2343, "The Adventure of Wisteria Lodge"),
+    (74, "The Adventures of Tom Sawyer"),
+    (76, "Adventures of Huckleberry Finn"),
 )
-BOOK_END = re.compile(r"(?m)^THE END[ \t]*$")
+
+GUTENBERG_URL = "https://www.gutenberg.org/cache/epub/{book_id}/pg{book_id}.txt"
+START_MARKER = re.compile(r"(?im)^\*{3}[ \t]*START OF THE PROJECT GUTENBERG EBOOK.*$")
+END_MARKER = re.compile(r"(?im)^\*{3}[ \t]*END OF THE PROJECT GUTENBERG EBOOK.*$")
 ILLUSTRATION = re.compile(r"(?ms)^[ \t]*\[Illustration:.*?\][ \t]*(?:\n|$)")
 
 
-def clean_corpus(raw_text: str) -> str:
-    """Extract the stories and normalize print layout without changing words."""
-    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+def fetch_book(book_id: int, raw_dir: Path = RAW_DIR) -> Path:
+    """Download a Project Gutenberg ebook once and return the cached file."""
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    path = raw_dir / f"pg{book_id}.txt"
+    if not path.exists():
+        url = GUTENBERG_URL.format(book_id=book_id)
+        with urllib.request.urlopen(url) as response:
+            path.write_bytes(response.read())
+    return path
 
-    starts = list(BOOK_START.finditer(text))
-    if len(starts) != 1:
-        raise ValueError(f"Expected one book/story start marker; found {len(starts)}")
 
-    end = BOOK_END.search(text, starts[0].end())
-    if end is None:
-        raise ValueError("Could not find the final 'THE END' story marker")
-
-    body = text[starts[0].start() : end.end()]
-    illustration_count = body.count("[Illustration:")
-    illustrations = list(ILLUSTRATION.finditer(body))
-    if len(illustrations) != illustration_count:
-        raise ValueError("Found an illustration caption without a matching closing bracket")
-    body = ILLUSTRATION.sub("", body)
-
+def _join_paragraphs(body: str) -> str:
+    """Strip print indentation and join line-wrapped text within paragraphs."""
     paragraphs: list[str] = []
     lines_in_paragraph: list[str] = []
     for line in body.splitlines():
@@ -49,11 +54,24 @@ def clean_corpus(raw_text: str) -> str:
             lines_in_paragraph = []
     if lines_in_paragraph:
         paragraphs.append(" ".join(lines_in_paragraph))
-
     if not paragraphs:
         raise ValueError("The extracted story text is empty")
-
     return "\n\n".join(paragraphs)
+
+
+def clean_book(raw_text: str, title: str) -> str:
+    """Extract one book's text between the Gutenberg markers and reflow paragraphs."""
+    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+    start = START_MARKER.search(text)
+    end = END_MARKER.search(text)
+    if start is None or end is None or end.start() <= start.end():
+        raise ValueError(f"Could not locate Gutenberg boundaries in {title!r}")
+    body = text[start.end() : end.start()]
+    illustration_count = body.count("[Illustration:")
+    illustrations = list(ILLUSTRATION.finditer(body))
+    if len(illustrations) != illustration_count:
+        raise ValueError(f"Found an illustration caption without a matching closing bracket in {title!r}")
+    return _join_paragraphs(ILLUSTRATION.sub("", body))
 
 
 def split_document(text: str, train_fraction: float = 0.9) -> tuple[str, str]:
@@ -74,24 +92,35 @@ def split_document(text: str, train_fraction: float = 0.9) -> tuple[str, str]:
     return train_text, validation_text
 
 
-def prepare(input_path: Path, output_dir: Path, train_fraction: float = 0.9) -> dict[str, object]:
-    raw_text = input_path.read_text(encoding="utf-8-sig")
-    cleaned = clean_corpus(raw_text)
-    train_text, validation_text = split_document(cleaned, train_fraction)
+def prepare(output_dir: Path, train_fraction: float = 0.9) -> dict[str, object]:
+    sources: list[dict[str, object]] = []
+    cleaned_parts: list[str] = []
+    for book_id, title in BOOKS:
+        raw_text = fetch_book(book_id).read_text(encoding="utf-8-sig")
+        cleaned = clean_book(raw_text, title)
+        cleaned_parts.append(cleaned)
+        sources.append({"gutenberg_id": book_id, "title": title, "characters": len(cleaned)})
+
+    cleaned_text = "\n\n".join(cleaned_parts)
+    train_text, validation_text = split_document(cleaned_text, train_fraction)
+
+    # The character tokenizer is fitted on the training split only, so every
+    # validation character must already appear in the training text.
+    missing = sorted(set(validation_text).difference(train_text))
+    if missing:
+        raise ValueError(f"Validation characters absent from the training text: {missing!r}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "train.txt").write_text(train_text, encoding="utf-8")
     (output_dir / "validation.txt").write_text(validation_text, encoding="utf-8")
 
-    total_chars = len(cleaned)
-    train_chars = len(train_text)
     summary: dict[str, object] = {
-        "source_file": input_path.name,
-        "cleaned_characters": total_chars,
-        "vocabulary_size": len(set(cleaned)),
-        "train_characters": train_chars,
+        "sources": sources,
+        "cleaned_characters": len(cleaned_text),
+        "vocabulary_size": len(set(cleaned_text)),
+        "train_characters": len(train_text),
         "validation_characters": len(validation_text),
-        "train_fraction": round(train_chars / total_chars, 6),
+        "train_fraction": round(len(train_text) / len(cleaned_text), 6),
         "split_method": "document order, nearest paragraph boundary to requested fraction",
     }
     (output_dir / "summary.json").write_text(
@@ -102,12 +131,11 @@ def prepare(input_path: Path, output_dir: Path, train_fraction: float = 0.9) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--train-fraction", type=float, default=0.9)
     args = parser.parse_args()
 
-    summary = prepare(args.input, args.output_dir, args.train_fraction)
+    summary = prepare(args.output_dir, args.train_fraction)
     print(json.dumps(summary, indent=2))
 
 

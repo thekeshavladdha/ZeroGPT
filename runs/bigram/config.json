@@ -6,9 +6,9 @@
   "smoothing": 1.0,
   "shuffle": false,
   "model": {
-    "vocab_size": 88,
+    "vocab_size": 100,
     "smoothing": 1.0,
     "observed_start_tokens": 1,
-    "observed_transitions": 506454
+    "observed_transitions": 2726748
   }
 }

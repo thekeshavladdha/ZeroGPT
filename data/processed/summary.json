@@ -1,9 +1,45 @@
 {
-  "source_file": "dataset.txt",
-  "cleaned_characters": 562585,
-  "vocabulary_size": 88,
-  "train_characters": 506455,
-  "validation_characters": 56130,
-  "train_fraction": 0.900228,
+  "sources": [
+    {
+      "gutenberg_id": 1661,
+      "title": "The Adventures of Sherlock Holmes",
+      "characters": 561795
+    },
+    {
+      "gutenberg_id": 834,
+      "title": "The Memoirs of Sherlock Holmes",
+      "characters": 514822
+    },
+    {
+      "gutenberg_id": 2852,
+      "title": "The Hound of the Baskervilles",
+      "characters": 318462
+    },
+    {
+      "gutenberg_id": 108,
+      "title": "The Return of Sherlock Holmes",
+      "characters": 608794
+    },
+    {
+      "gutenberg_id": 2343,
+      "title": "The Adventure of Wisteria Lodge",
+      "characters": 62806
+    },
+    {
+      "gutenberg_id": 74,
+      "title": "The Adventures of Tom Sawyer",
+      "characters": 392360
+    },
+    {
+      "gutenberg_id": 76,
+      "title": "Adventures of Huckleberry Finn",
+      "characters": 570597
+    }
+  ],
+  "cleaned_characters": 3029648,
+  "vocabulary_size": 100,
+  "train_characters": 2726749,
+  "validation_characters": 302899,
+  "train_fraction": 0.900022,
   "split_method": "document order, nearest paragraph boundary to requested fraction"
 }
