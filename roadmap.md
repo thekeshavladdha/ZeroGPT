@@ -90,13 +90,14 @@ List the project owner as the sole project owner/maintainer. The README does not
 
 Do not build BPE, RoPE, RMSNorm, SwiGLU, GQA, KV cache, a browser inference demo, a large ablation/scaling study, native acceleration, a blog, or a video. Consider an addition only after the tiny GPT passes all v1 gates and there is a concrete reason to add it.
 
-## V2 — tokenizer scaling study (completed 2026-10-25)
+## V2 — tokenizer study (2026-10-25)
 
-With the V1 gates passed, V2 lifted exactly two out-of-scope items: BPE and a scaling study. The question: does byte-pair tokenization beat character-level tokenization once the model is big enough for subwords to pay off?
+With the V1 gates passed, the next question was the one V1 had parked: does byte-pair tokenization pay off at a larger scale?
 
-- **Metric**: validation loss per character (nats/char) for every cross-tokenizer claim. V1's BPE comparison at 3.02 nats/token was a metric artifact — on nats/char that run already won (1.41 vs 1.49).
-- **Corpus**: seven public-domain Gutenberg books (Doyle 1661/834/2852/108/2343, Twain 74/76), 3,029,648 characters, same cleaning rules and 90/10 document-order split.
-- **Architecture (Tier A)**: 4 layers, width 192, MLP 768, 6 heads, context 128, batch 16 → 1,842,916 (character) / 2,001,536 (BPE-512) parameters.
-- **Protocol**: equal steps (3,000), LR 3e-3 with 200-step warmup and cosine decay, seed 1337; tokenizers fitted on the training split only (the V1-era train+validation fit was a leak, fixed); 500-step local pilots chose vocabulary 512 and LR 3e-3; full runs on the Kaggle CPU. An earlier Kaggle BPE run was discarded when its tokenizer proved unreproducible from the committed code — the notebook now carries a pre-flight cell asserting the corpus and the exact BPE tokenization (146,289 validation tokens) before training.
-- **Gates**: BPE at least 0.05 nats/char better than character; both beat the bigram baseline; owner reviews the BPE sample. A character context-256 control run was pre-agreed only if the margin came in under 0.1.
-- **Result**: BPE-512 = **1.3423** nats/char vs character 1.4685 — margin 0.1263, so the control run was not triggered. Both beat the 2.4184 bigram. The BPE sample shows longer coherent phrases and correct dialogue formatting than the character sample. Artifacts: `runs/gpt_v2_bpe/` (full), `runs/gpt_v2_char/` (results transcribed from the session output; see its `PROVENANCE.md`).
+What changed: the corpus grew to seven public-domain books (3,029,648 characters), the training script gained architecture flags, tokenizers are now fitted on the training split only (the old code fit on train plus validation, a small leak), and every run records validation loss per character. That last one matters because V1's BPE comparison at 3.02 nats/token was a measurement mistake; per character, that run had already won (1.41 vs 1.49).
+
+Both tokenizers trained the same model (4 layers, width 192, MLP 768, 6 heads, context 128, batch 16; about 1.84M parameters character, 2.00M BPE-512) for 3,000 steps at learning rate 3e-3 with warmup and cosine decay, seed 1337. Short 500-step local runs picked BPE vocabulary 512 and learning rate 3e-3 for both sides.
+
+Gates agreed before running anything: BPE beats character by at least 0.05 nats/char, both beat the bigram baseline, the owner reviews the BPE sample, and a character context-256 control run happens only if the margin lands under 0.1.
+
+Result: BPE 1.3423 vs character 1.4685 nats/char, margin 0.1263, so no control run was needed. Both beat the 2.4184 bigram. One earlier Kaggle BPE run was discarded because its tokenizer could not be reproduced from the committed code; the notebook now checks the corpus and the exact tokenization before training starts. Full artifacts in `runs/gpt_v2_bpe/`; `runs/gpt_v2_char/` carries the transcribed numbers, with a `PROVENANCE.md` explaining what survived a lost session.
