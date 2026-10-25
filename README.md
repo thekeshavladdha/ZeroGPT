@@ -2,11 +2,9 @@
 
 ZeroGPT is a small decoder-only GPT built from scratch in NumPy. No PyTorch, no transformer library: the tokenizer, the autograd engine, the transformer, AdamW, the training loop, checkpointing, and the sampler are all written by hand for this project, using only NumPy and the standard library. It trains on a plain CPU, and every number in this README comes from a saved run under `runs/`.
 
-Maintainer: project owner
-
 ## Scope
 
-Work follows the plan in [`roadmap.md`](roadmap.md). V1 was kept small on purpose: a character tokenizer, a count-based bigram baseline, and a ~115K-parameter transformer on the supplied Sherlock Holmes text. V2 grew the corpus and the model to answer one question: does byte-pair tokenization beat character-level tokenization once the model is big enough for subwords to matter? Short answer: yes, and V1's BPE "failure" was a measurement mistake, not a real one.
+V1 was kept small on purpose: a character tokenizer, a count-based bigram baseline, and a ~115K-parameter transformer on the supplied Sherlock Holmes text. V2 grew the corpus and the model to answer one question: does byte-pair tokenization beat character-level tokenization once the model is big enough for subwords to matter? Short answer: yes, and V1's BPE "failure" was a measurement mistake, not a real one.
 
 The only runtime dependency is NumPy ([`requirements.txt`](requirements.txt)). No pandas, PyTorch, SciPy, or CuPy anywhere.
 
