@@ -1,47 +1,59 @@
 # ZeroGPT
 
-ZeroGPT is a small decoder-only GPT built from scratch in NumPy. No PyTorch, no transformer library: the tokenizer, the autograd engine, the transformer, AdamW, the training loop, checkpointing, and the sampler are all written by hand for this project, using only NumPy and the standard library. It trains on a plain CPU, and every number in this README comes from a saved run under `runs/`.
+I wanted to understand how a GPT actually works, all the way down, so I built one from scratch in NumPy. No PyTorch, no transformer library. The tokenizer, the autograd engine, the attention, AdamW, the training loop, checkpointing, sampling: all of it is written by hand for this project, and the only dependency is NumPy. It trains on a regular CPU in minutes to a couple of hours.
 
-## Scope
+Every number in this README comes from a saved run under `runs/`. If a result isn't in a results file somewhere, it isn't in here.
 
-V1 was kept small on purpose: a character tokenizer, a count-based bigram baseline, and a ~115K-parameter transformer on the supplied Sherlock Holmes text. V2 grew the corpus and the model to answer one question: does byte-pair tokenization beat character-level tokenization once the model is big enough for subwords to matter? Short answer: yes, and V1's BPE "failure" was a measurement mistake, not a real one.
+## The short version
 
-The only runtime dependency is NumPy ([`requirements.txt`](requirements.txt)). No pandas, PyTorch, SciPy, or CuPy anywhere.
+The reason this project exists is the table below. I trained the same transformer twice on the same text, once with a character tokenizer and once with byte-pair encoding, under the same budget.
+
+| Run | Tokenizer | Parameters | nats/token | nats/char |
+| --- | --- | ---: | ---: | ---: |
+| Bigram baseline | characters | - | 2.4184 | 2.4184 |
+| GPT | characters | 1,842,916 | 1.4685 | 1.4685 |
+| GPT | byte-pair, vocab 512 | 2,001,536 | 2.7792 | **1.3423** |
+
+Byte-pair wins by 0.1263 nats per character.
+
+Now look at the nats/token column. There, characters look better than BPE, 1.47 against 2.78. I believed that for a while. My first BPE run lost badly on per-token loss and I nearly wrote subwords off for this model size. Then it clicked: a BPE token covers about 2.07 characters on this corpus, so comparing nats per token across tokenizers with different token sizes is meaningless. Counted per character, that "losing" run had already won. Most of the work after that point exists because of that mistake, and because I wanted to re-run the fight at a scale where subwords should matter more.
+
+There was an earlier round, too. The first version of this project was deliberately tiny: a character model with 115,544 parameters on the original single-book corpus, 6,000 steps, which reached 1.4863 nats and beat its bigram baseline (2.3788) by 0.89. That model and its run are still saved in `runs/gpt/`. The old single-book corpus lives in git history.
+
+## What's hand-built
+
+- A byte-level BPE tokenizer with a learned merge table, and a character tokenizer.
+- A small reverse-mode autograd `Tensor` with exactly the ops this model needs: embedding lookup, linear, layer norm, causal attention, GELU, softmax cross-entropy.
+- The decoder: pre-LayerNorm blocks, multi-head causal self-attention, GELU MLPs, learned position embeddings.
+- AdamW with gradient clipping and warmup plus cosine decay.
+- Deterministic batching, checkpoint save/load, and seeded sampling.
+
+That's the whole stack. `requirements.txt` is one line: `numpy`.
 
 ## Data
 
-V2 trains on seven public-domain Project Gutenberg books: the Sherlock Holmes canon (ebooks 1661, 834, 2852, 108, 2343) plus *Tom Sawyer* and *Huckleberry Finn* (74, 76). Sources, license notes, and the cleaning rules are in [`data/README.md`](data/README.md).
+V2 trains on seven public-domain Project Gutenberg books: four Sherlock Holmes books (Adventures, Memoirs, The Hound of the Baskervilles, The Return), one Holmes short story (Wisteria Lodge; ebook 2343 turned out to contain just that story rather than all of His Last Bow), plus Tom Sawyer and Huckleberry Finn, because I wanted a very different voice in the mix. Sources, licenses, and the cleaning rules are in [`data/README.md`](data/README.md).
 
 ```bash
 python data/prepare.py
 ```
 
-The prepared corpus:
+This downloads each book once (cached in `data/raw/`), strips the Gutenberg boilerplate and illustration captions, and reflows paragraphs. Cleaned, the corpus is 3,029,648 characters with a vocabulary of 100, split 90/10 in document order: 2,726,749 training characters, 302,899 validation. The validation split is the tail of the corpus, so no text is shuffled across the boundary.
 
-| Artifact | Value |
-| --- | ---: |
-| Cleaned characters | 3,029,648 |
-| Vocabulary size | 100 |
-| Training characters | 2,726,749 |
-| Validation characters | 302,899 |
-| Actual training fraction | 0.900022 |
-
-The split stays document-ordered, cutting at the paragraph boundary nearest 90%. V1's single-book corpus (562,585 characters, 88 unique characters) is still in git history.
-
-## Run locally
+## Running it
 
 ```bash
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
 ```
 
-Train the baseline:
+The bigram baseline takes seconds:
 
 ```bash
 python scripts/train_bigram.py --output-dir runs/bigram
 ```
 
-Reproduce the V1 showcase run (character tokenizer, 6,000 steps):
+The original small model (its saved run was trained on the old single-book corpus):
 
 ```bash
 python scripts/train_gpt.py \
@@ -54,59 +66,29 @@ python scripts/train_gpt.py \
   --output-dir runs/gpt
 ```
 
-Every training run writes `config.json`, `train.jsonl`, `results.json`, `tokenizer.json`, `checkpoint.npz`, and `sample.txt` to its output directory, and records its comparison against `runs/bigram/results.json`.
+The two V2 runs from the table above:
 
-## Model
+```bash
+python scripts/train_gpt.py --steps 3000 --batch-size 16 --eval-batch-size 64 --eval-interval 100 --warmup-steps 200 --learning-rate 3e-3 --num-layers 4 --num-heads 6 --model-width 192 --mlp-width 768 --context-length 128 --sample-tokens 400 --tokenizer-type character --output-dir runs/gpt_v2_char
 
-The V1 showcase model ([`runs/gpt/config.json`](runs/gpt/config.json)):
+python scripts/train_gpt.py --steps 3000 --batch-size 16 --eval-batch-size 64 --eval-interval 100 --warmup-steps 200 --learning-rate 3e-3 --num-layers 4 --num-heads 6 --model-width 192 --mlp-width 768 --context-length 128 --sample-tokens 400 --tokenizer-type byte_pair --vocab-limit 512 --output-dir runs/gpt_v2_bpe
+```
 
-| Setting | Value |
-| --- | ---: |
-| Decoder layers | 2 |
-| Attention heads | 8 |
-| Model width | 64 |
-| MLP width | 256 |
-| Context length | 64 |
-| Vocabulary size | 88 |
-| Parameters | 115,544 |
-| Seed | 1337 |
+Each run writes `config.json`, `train.jsonl`, `results.json`, `tokenizer.json`, `checkpoint.npz`, and `sample.txt` to its output directory.
 
-Each block is LayerNorm, causal multi-head attention, a residual connection, a GELU MLP, and another residual. Learned token and position embeddings feed the stack; a final LayerNorm and linear head produce the logits. The V2 model is the same design scaled to 4 layers, width 192, MLP 768, 6 heads, context 128.
+## How the comparison was run
 
-## Saved results (V1)
+Both models share everything: 4 layers, width 192, MLP width 768, 6 heads, context 128, batch 16, 3,000 steps, learning rate 3e-3 with 200 warmup steps and cosine decay, seed 1337, same corpus. Tokenizers are fitted on the training split only; an earlier version of my script fitted BPE merges on train plus validation, which was a leak, so that's fixed and covered by tests now. I picked the BPE vocabulary (512, over 1024 and 2048) and the learning rate with short 500-step pilots on my laptop, then did the real runs on Kaggle's CPU, about two hours each.
 
-| Run | Validation loss (nats) | Throughput | Peak memory |
-| --- | ---: | ---: | ---: |
-| Character bigram | 2.3787632082 | 11,718,388 tokens/s | 36.71 MB |
-| Tiny GPT | 1.4862852312 | 5,202 tokens/s | 520.58 MB |
+BPE gets a second advantage worth naming. At 2.07 characters per token, the same 3,000 steps push roughly 12.7M characters through the BPE model against 6.1M for the character model. That isn't cheating, that's the point of compression.
 
-The GPT beats the bigram by 0.8924779770 nats and its checkpoint reloads with a maximum logit difference of 0.0. Throughput was measured on the Kaggle CPU runner; the T4 does nothing for this code.
-
-## V2: byte-pair versus character
-
-The first BPE attempt looked like a loss: 3.02 nats per token against 1.49 for characters. That comparison was wrong. A BPE token covers about 2.07 characters on this corpus, so per-token losses don't mean the same thing for the two tokenizers. Counted per character, that same BPE run had already won (1.41 vs 1.49). V2 was built to test the question properly at a size where subwords should matter.
-
-Both models share the same architecture and budget:
-
-- 4 layers, width 192, MLP width 768, 6 heads, context 128, batch 16
-- 3,000 steps, learning rate 3e-3 (200-step warmup, cosine decay), seed 1337
-- the 3.03M-character corpus with its 90/10 split
-- tokenizers fitted on the training split only
-- BPE vocabulary (512) and learning rate picked by short 500-step local runs
-
-| Run | Tokenizer | Parameters | nats/token | nats/char |
-| --- | --- | ---: | ---: | ---: |
-| Bigram | character | - | 2.4184 | 2.4184 |
-| GPT | character | 1,842,916 | 1.4685 | 1.4685 |
-| GPT | byte-pair 512 | 2,001,536 | 2.7792 | **1.3423** |
-
-BPE wins by 0.1263 nats per character, about 8.6% lower, at the same step count. It also got more out of each step: with 2.07 characters per token, the BPE run pushed roughly 12.7M characters through the model against the character run's 6.1M. (The `beats_bigram` flag stored in the BPE run's `results.json` compares nats per token against a character bigram and reads false for the same reason. Quote the per-character column.)
-
-For the record: the character run's files were rebuilt from the session's printed output after a Kaggle session expired before download, so [`runs/gpt_v2_char/`](runs/gpt_v2_char) has no checkpoint or step log (its `PROVENANCE.md` explains exactly what survived). [`runs/gpt_v2_bpe/`](runs/gpt_v2_bpe) is the complete run, and its tokenizer was checked to reproduce the committed code's tokenization exactly.
+Two footnotes I want on the record. First, the `beats_bigram` flag stored in the BPE run's `results.json` reads false, because the script compares nats per token against a character bigram. Same trap as the main table, just in flag form. Second, I lost the character run's files: the Kaggle session expired before I downloaded anything, and its checkpoint and step log are gone. [`runs/gpt_v2_char/`](runs/gpt_v2_char) holds the numbers transcribed from that session's printed output, and the `PROVENANCE.md` inside says exactly what survived and what didn't. The numbers are real, the file set isn't complete, and I learned the download-before-closing-the-tab lesson the annoying way. The BPE run in [`runs/gpt_v2_bpe/`](runs/gpt_v2_bpe) is complete, and I verified its tokenizer reproduces the committed code's tokenization exactly before trusting it. An earlier BPE run that couldn't pass that check went in the bin.
 
 ## Samples
 
-The V1 showcase sample (prompt `Sherlock Holmes`, seed 1337, temperature 0.8, full text in [`runs/gpt/sample.txt`](runs/gpt/sample.txt)):
+Both samples use the prompt `Sherlock Holmes`, seed 1337, temperature 0.8.
+
+The V1 character model (full text in [`runs/gpt/sample.txt`](runs/gpt/sample.txt)):
 
 ```text
 Sherlock Holmes. "You have seen at that they father all."
@@ -118,7 +100,7 @@ Sherlock Holmes. "You have seen at that they father all."
 “But it is may be the trace, and in of year end coatual hair keen and of my peave that send to remarked uncle, the was nowing dropped of the storibling hydred gestable the case that first t
 ```
 
-And the V2 BPE sample (from [`runs/gpt_v2_bpe/sample.txt`](runs/gpt_v2_bpe/sample.txt), same prompt, seed, and temperature):
+The V2 BPE model (from [`runs/gpt_v2_bpe/sample.txt`](runs/gpt_v2_bpe/sample.txt)):
 
 ```text
 Sherlock Holmes’s faces are guess I am on a long for cases, as you makes a sortnal on the rideg of
@@ -128,20 +110,25 @@ thrown from it.”
 “Ah, Mortimer,” said Holmes, “they has since you get me ”
 ```
 
-The BPE text holds phrases together better, gets the dialogue formatting right, and pulls real names from the corpus (Mortimer). Still visibly broken, which is about right for 2M parameters and a two-hour CPU run.
+The character model spells fine and mostly finds real words, but the phrases wander. The BPE model holds phrases together, gets the dialogue punctuation right, and pulls actual names from the books; Mortimer walks in from The Hound of the Baskervilles. Both are still visibly broken, which feels about right for this parameter count and a two-hour CPU budget.
 
-## Kaggle runner
+## On Kaggle
 
-Open [`notebooks/zerogpt_kaggle.ipynb`](notebooks/zerogpt_kaggle.ipynb) on Kaggle with the repository attached as a dataset or uploaded to the working directory. The notebook extracts the repo, installs requirements, prepares the corpus, runs the bigram baseline, trains the V2 models (one run per session is comfortable, about two hours each), prints the comparison, and zips `runs/` for download. Everything runs on the Kaggle CPU; the T4 does not accelerate this implementation.
+[`notebooks/zerogpt_kaggle.ipynb`](notebooks/zerogpt_kaggle.ipynb) runs the whole pipeline on Kaggle's CPU: it unpacks the repo, preps the corpus, trains the baseline and the V2 models, prints the comparison, and zips `runs/` for download. About two hours per training run, and one run per session is comfortable. The T4 doesn't help; this is NumPy on CPU by design.
 
-## Tests and limitations
+Two practical things I learned up there. Interactive working files die with the session, so download the outputs (or hit Save Version) before closing the tab. And verify what you're actually running: the notebook has a small cell that checks the corpus and the exact BPE tokenization before you burn two hours on training.
 
-Focused `unittest` checks cover autograd gradients and causal attention, tokenizers and batching, bigram fitting and reload, transformer causality, AdamW, fixed-batch overfitting, sampling, and checkpoint reload.
+## Tests and rough edges
 
-Known limitations:
+The suite covers autograd gradients and causal masking, both tokenizers, batching, the bigram model, transformer causality, AdamW, overfitting on a fixed batch, sampling, and checkpoint round-trips:
 
-- These are demonstrations (115K parameters for V1, about 1.8-2.0M for V2), not language products.
-- Sample quality depends heavily on the training budget, seed, and temperature.
-- CPU only. No GPU backend and no KV cache.
-- The character V2 run has no checkpoint or step log (see `runs/gpt_v2_char/PROVENANCE.md`).
-- Public release waits on the owner's final approval.
+```bash
+python -m unittest discover -s tests
+```
+
+Rough edges I know about:
+
+- The character V2 run has no checkpoint or step log, as described above.
+- No GPU backend and no KV cache. Sampling works, it's just honest about being slow.
+- Sample quality swings with the seed and temperature, so don't read much into any single sample.
+- This is a demonstration. It's not a language product and I don't pretend otherwise.
