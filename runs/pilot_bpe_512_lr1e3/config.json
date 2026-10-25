@@ -1,0 +1,26 @@
+{
+  "train_path": "data/processed/train.txt",
+  "validation_path": "data/processed/validation.txt",
+  "seed": 1337,
+  "steps": 500,
+  "batch_size": 16,
+  "eval_batch_size": 64,
+  "learning_rate": 0.001,
+  "weight_decay": 0.01,
+  "gradient_clip_norm": 1.0,
+  "eval_interval": 100,
+  "prompt": "Sherlock Holmes",
+  "sample_tokens": 32,
+  "temperature": 0.8,
+  "model": {
+    "vocab_size": 512,
+    "context_length": 128,
+    "num_layers": 4,
+    "num_heads": 6,
+    "model_width": 192,
+    "mlp_width": 768,
+    "layer_norm_epsilon": 1e-05,
+    "initialization_std": 0.02
+  },
+  "parameter_count": 2001536
+}
